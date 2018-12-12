@@ -135,7 +135,7 @@ static int bigquery_jwt_encode(char *payload, char *secret,
     ret = mbedtls_pk_parse_key(&pk_ctx,
                                (unsigned char *) secret, len, NULL, 0);
     if (ret != 0) {
-        flb_error("[out_stackdriver] error loading private key");
+        flb_error("[out_bigquery] error loading private key");
         flb_free(buf);
         flb_sds_destroy(out);
         return -1;
@@ -144,7 +144,7 @@ static int bigquery_jwt_encode(char *payload, char *secret,
     /* Create RSA context */
     rsa = mbedtls_pk_rsa(pk_ctx);
     if (!rsa) {
-        flb_error("[out_stackdriver] error creating RSA context");
+        flb_error("[out_bigquery] error creating RSA context");
         flb_free(buf);
         flb_sds_destroy(out);
         mbedtls_pk_free(&pk_ctx);
@@ -155,7 +155,7 @@ static int bigquery_jwt_encode(char *payload, char *secret,
                                  MBEDTLS_RSA_PRIVATE, MBEDTLS_MD_SHA256,
                                  0, (unsigned char *) sha256_buf, sig);
     if (ret != 0) {
-        flb_error("[out_stackdriver] error signing SHA256");
+        flb_error("[out_bigquery] error signing SHA256");
         flb_free(buf);
         flb_sds_destroy(out);
         mbedtls_pk_free(&pk_ctx);
