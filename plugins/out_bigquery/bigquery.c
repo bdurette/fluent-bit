@@ -136,7 +136,6 @@ static int bigquery_jwt_encode(char *payload, char *secret,
                                (unsigned char *) secret, len, NULL, 0);
     if (ret != 0) {
         flb_error("[out_bigquery] error loading private key");
-        flb_error("[out_bigquery] key: %s", secret);
         flb_free(buf);
         flb_sds_destroy(out);
         return -1;
