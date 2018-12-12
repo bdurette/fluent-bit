@@ -251,17 +251,31 @@ struct flb_bigquery *flb_bigquery_conf_create(struct flb_output_instance *ins,
         }
     }
 
-    /* config: 'project_id' */
-    tmp = flb_output_get_property("project_id", ins);
-    if (tmp) {
-        ctx->project_id = flb_sds_create(tmp);
-    }
-    else {
-        flb_error("[out_bigquery] property 'project_id' is not defined");
-        flb_bigquery_conf_destroy(ctx);
-        return NULL;
+    if (creds->project_id) {
+        tmp = flb_sds_create(creds->project_id);
+        if (tmp) {
+            ctx->project_id = tmp;
+        }
+        else {
+            flb_error("[out_bigquery] failed extracting 'project_id' from credentials");
+            flb_bigquery_conf_destroy(ctx);
+            return NULL;
+        }
     }
 
+    if (!ctx->project_id) {
+        /* config: 'project_id' */
+        tmp = flb_output_get_property("project_id", ins);
+        if (tmp) {
+            ctx->project_id = flb_sds_create(tmp);
+        }
+        else {
+            flb_error("[out_bigquery] property 'project_id' is not defined");
+            flb_bigquery_conf_destroy(ctx);
+            return NULL;
+        }
+    }
+    
     /* config: 'dataset_id' */
     tmp = flb_output_get_property("dataset_id", ins);
     if (tmp) {
