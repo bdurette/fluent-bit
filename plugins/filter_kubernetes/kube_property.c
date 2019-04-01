@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -234,7 +235,7 @@ int flb_kube_prop_unpack(struct flb_kube_props *props, char *buf, size_t size)
 
     msgpack_unpacked_init(&result);
     ret = msgpack_unpack_next(&result, buf, size, &off);
-    if (ret == -1) {
+    if (ret == MSGPACK_UNPACK_PARSE_ERROR) {
         msgpack_unpacked_destroy(&result);
         return -1;
     }

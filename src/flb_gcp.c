@@ -345,16 +345,16 @@ static int flb_gcp_oath_jwt_encode(char *payload, char *secret,
     }
 
     /* Append header */
-    flb_sds_cat(out, buf, olen);
-    flb_sds_cat(out, ".", 1);
+    out = flb_sds_cat(out, buf, olen);
+    out = flb_sds_cat(out, ".", 1);
 
     /* Encode Payload */
     len = strlen(payload);
     gcp_jwt_base64_url_encode((unsigned char *) buf, buf_size,
-                          (unsigned char *) payload, len, &olen);
+                              (unsigned char *) payload, len, &olen);
 
     /* Append Payload */
-    flb_sds_cat(out, buf, olen);
+    out = flb_sds_cat(out, buf, olen);
 
     /* do sha256() of base64(header).base64(payload) */
     mbedtls_sha256_init(&sha256_ctx);
@@ -371,7 +371,7 @@ static int flb_gcp_oath_jwt_encode(char *payload, char *secret,
     ret = mbedtls_pk_parse_key(&pk_ctx,
                                (unsigned char *) secret, len, NULL, 0);
     if (ret != 0) {
-        flb_error("[auth_gcp] error loading private key");
+        flb_error("[flb_gcp] error loading private key");
         flb_free(buf);
         flb_sds_destroy(out);
         return -1;
@@ -380,7 +380,7 @@ static int flb_gcp_oath_jwt_encode(char *payload, char *secret,
     /* Create RSA context */
     rsa = mbedtls_pk_rsa(pk_ctx);
     if (!rsa) {
-        flb_error("[auth_gcp] error creating RSA context");
+        flb_error("[flb_gcp] error creating RSA context");
         flb_free(buf);
         flb_sds_destroy(out);
         mbedtls_pk_free(&pk_ctx);
@@ -391,7 +391,7 @@ static int flb_gcp_oath_jwt_encode(char *payload, char *secret,
                                  MBEDTLS_RSA_PRIVATE, MBEDTLS_MD_SHA256,
                                  0, (unsigned char *) sha256_buf, sig);
     if (ret != 0) {
-        flb_error("[auth_gcp] error signing SHA256");
+        flb_error("[flb_gcp] error signing SHA256");
         flb_free(buf);
         flb_sds_destroy(out);
         mbedtls_pk_free(&pk_ctx);
@@ -409,8 +409,8 @@ static int flb_gcp_oath_jwt_encode(char *payload, char *secret,
 
     gcp_jwt_base64_url_encode((unsigned char *) sigd, 2048, sig, 256, &olen);
 
-    flb_sds_cat(out, ".", 1);
-    flb_sds_cat(out, sigd, olen);
+    out = flb_sds_cat(out, ".", 1);
+    out = flb_sds_cat(out, sigd, olen);
 
     *out_signature = out;
     *out_size = flb_sds_len(out);

@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -38,7 +39,7 @@ static inline int mp_count(void *data, size_t bytes, msgpack_zone *zone)
         t = zone;
     }
 
-    while (msgpack_unpack(data, bytes, &off, t, &obj)) {
+    while (msgpack_unpack(data, bytes, &off, t, &obj) == MSGPACK_UNPACK_SUCCESS) {
         c++;
     }
 

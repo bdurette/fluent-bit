@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -149,6 +150,15 @@ struct flb_kafka *flb_kafka_conf_create(struct flb_output_instance *ins,
     else {
         ctx->timestamp_key = FLB_KAFKA_TS_KEY;
         ctx->timestamp_key_len = strlen(FLB_KAFKA_TS_KEY);
+    }
+
+    /* Config: Timestamp_Format */
+    ctx->timestamp_format = FLB_JSON_DATE_DOUBLE;
+    tmp = flb_output_get_property("timestamp_format", ins);
+    if (tmp) {
+        if (strcasecmp(tmp, "iso8601") == 0) {
+            ctx->timestamp_format = FLB_JSON_DATE_ISO8601;
+        }
     }
 
     /* Config Gelf_Timestamp_Key */

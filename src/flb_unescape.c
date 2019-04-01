@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,12 +18,12 @@
  *  limitations under the License.
  */
 
+#include <fluent-bit/flb_compat.h>
 #include <fluent-bit/flb_info.h>
 #include <fluent-bit/flb_log.h>
 
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <inttypes.h>
 
 static int octal_digit(char c)
@@ -123,13 +124,17 @@ static int u8_read_escape_sequence(char *str, uint32_t *dest)
 
 static inline int is_json_escape(char *c)
 {
-  return (
-          (*c == '\"') || /* double-quote */
-          (*c == '\'') || /* single-quote */
-          (*c == '\\') || /* solidus      */
-          (*c == 'n')  || /* new-line     */
-          (*c == '/')     /* reverse-solidus */
-          );
+    return (
+            (*c == '\"') || /* double-quote    */
+            (*c == '\'') || /* single-quote    */
+            (*c == '\\') || /* solidus         */
+            (*c == 'n')  || /* new-line        */
+            (*c == 'r')  || /* carriage return */
+            (*c == 't')  || /* horizontal tab  */
+            (*c == 'b')  || /* backspace       */
+            (*c == 'f')  || /* form feed       */
+            (*c == '/')     /* reverse-solidus */
+            );
 }
 
 int flb_unescape_string_utf8(char *in_buf, int sz, char *out_buf)

@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -62,6 +63,7 @@ struct flb_kube {
     int api_port;
     int api_https;
     int use_journal;
+    int labels;
     int annotations;
     int dummy_meta;
     int tls_debug;

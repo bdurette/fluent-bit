@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -73,7 +74,7 @@ int splunk_format(void *in_buf, size_t in_bytes,
     /* Iterate the original buffer and perform adjustments */
     msgpack_unpacked_init(&result);
 
-    while (msgpack_unpack_next(&result, in_buf, in_bytes, &off)) {
+    while (msgpack_unpack_next(&result, in_buf, in_bytes, &off) == MSGPACK_UNPACK_SUCCESS) {
         root = result.data;
 
         /* Get timestamp */

@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -145,7 +146,11 @@ static int in_systemd_collect(struct flb_input_instance *i_ins,
         }
 
         /* Set time */
-        sd_journal_get_realtime_usec(ctx->j, &usec);
+        ret = sd_journal_get_realtime_usec(ctx->j, &usec);
+        if (ret != 0) {
+            flb_error("[in_systemd] error reading from systemd journal. sd_journal_get_realtime_usec() return value '%s'", ret);
+            break;
+        }
         sec = usec / 1000000;
         nsec = (usec % 1000000) * 1000;
         flb_time_set(&tm, sec, nsec);
@@ -157,10 +162,10 @@ static int in_systemd_collect(struct flb_input_instance *i_ins,
          */
         if (mp_sbuf.size > 0 &&
             ((last_tag_len != tag_len) || (strncmp(last_tag, tag, tag_len) != 0))) {
-            flb_input_dyntag_append_raw(ctx->i_ins,
-                                        last_tag, last_tag_len,
-                                        mp_sbuf.data,
-                                        mp_sbuf.size);
+            flb_input_chunk_append_raw(ctx->i_ins,
+                                       last_tag, last_tag_len,
+                                       mp_sbuf.data,
+                                       mp_sbuf.size);
             msgpack_sbuffer_destroy(&mp_sbuf);
             msgpack_sbuffer_init(&mp_sbuf);
 
@@ -187,14 +192,15 @@ static int in_systemd_collect(struct flb_input_instance *i_ins,
 
         /* Pack every field in the entry */
         entries = 0;
-        while (sd_journal_enumerate_data(ctx->j, &data, &length) &&
+        while (sd_journal_enumerate_data(ctx->j, &data, &length) > 0 &&
                entries < ctx->max_fields) {
             key = (char *) data;
+            if (ctx->strip_underscores == FLB_TRUE && key[0] == '_') {
+                key++; 
+                length--;
+            }
             sep = strchr(key, '=');
             len = (sep - key);
-            if (ctx->strip_underscores == FLB_TRUE && key[0] == '_') {
-                key++; len--;
-            }
             msgpack_pack_str(&mp_pck, len);
             msgpack_pack_str_body(&mp_pck, key, len);
 
@@ -230,10 +236,10 @@ static int in_systemd_collect(struct flb_input_instance *i_ins,
          * more than 1MB. Journal will resume later.
          */
         if (mp_sbuf.size > 1024000) {
-            flb_input_dyntag_append_raw(ctx->i_ins,
-                                        tag, tag_len,
-                                        mp_sbuf.data,
-                                        mp_sbuf.size);
+            flb_input_chunk_append_raw(ctx->i_ins,
+                                       tag, tag_len,
+                                       mp_sbuf.data,
+                                       mp_sbuf.size);
             msgpack_sbuffer_destroy(&mp_sbuf);
             msgpack_sbuffer_init(&mp_sbuf);
             strncpy(last_tag, tag, tag_len);
@@ -259,10 +265,10 @@ static int in_systemd_collect(struct flb_input_instance *i_ins,
 
     /* Write any pending data into the buffer */
     if (mp_sbuf.size > 0) {
-        flb_input_dyntag_append_raw(ctx->i_ins,
-                                    tag, tag_len,
-                                    mp_sbuf.data,
-                                    mp_sbuf.size);
+        flb_input_chunk_append_raw(ctx->i_ins,
+                                   tag, tag_len,
+                                   mp_sbuf.data,
+                                   mp_sbuf.size);
     }
     msgpack_sbuffer_destroy(&mp_sbuf);
 

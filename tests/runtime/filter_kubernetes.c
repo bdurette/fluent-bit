@@ -16,12 +16,18 @@ struct kube_test {
 struct kube_test_result {
     char *target;
     char *suffix;
+    int   type;
     int   nmatched;
 };
 
 /* Test target mode */
 #define KUBE_TAIL     0
 #define KUBE_SYSTEMD  1
+
+#ifdef FLB_HAVE_SYSTEMD
+int flb_test_systemd_send(void);
+char kube_test_id[64];
+#endif
 
 /* Constants */
 #define KUBE_IP       "127.0.0.1"
@@ -38,6 +44,7 @@ struct kube_test_result {
 #define T_APACHE_LOGS_ANN       DPATH "apache-logs-annotated_default"
 #define T_APACHE_LOGS_ANN_INV   DPATH "apache-logs-annotated-invalid"
 #define T_APACHE_LOGS_ANN_MERGE DPATH "apache-logs-annotated-merge"
+#define T_APACHE_LOGS_ANN_EXCL  DPATH "apache-logs-annotated-exclude"
 #define T_JSON_LOGS             DPATH "json-logs_default"
 #define T_JSON_LOGS_INV         DPATH "json-logs-invalid"
 #define T_SYSTEMD_SIMPLE        DPATH "kairosdb-914055854-b63vq"
@@ -123,21 +130,39 @@ static int cb_check_result(void *record, size_t size, void *data)
     if (!out) {
         exit(EXIT_FAILURE);
     }
-    sprintf(streamfilter, "\"stream\":\"%s\"", result->suffix);
-    if (!result->suffix || !*result->suffix || strstr(record, streamfilter)) {
-
-        /*
-         * Our validation is: check that the content of out file is found
-         * in the output record.
+    if (result->type == KUBE_SYSTEMD) {
+        char *skip_record, *skip_out;
+        /* Skip the other records since some are created by systemd,
+           only check the kubernetes annotations
          */
-        check = strstr(record, out);
-        if (!check) {
-            fprintf(stderr, "Validator mismatch::\nTarget: <<%s>>, Suffix: <<%s>\n"
-                            "Filtered record: <<%s>>\nExpected record: <<%s>>\n",
-                            result->target, result->suffix, (char *)record, out);
+        skip_out = strstr(out, "\"kubernetes\":");
+        skip_record = strstr(record, "\"kubernetes\":");
+        if (skip_out && skip_record) {
+            TEST_CHECK(strcmp(skip_record, skip_out) == 0);
+            result->nmatched++;
         }
-        TEST_CHECK(check != NULL);
-        result->nmatched++;
+    } else {
+        sprintf(streamfilter, "\"stream\":\"%s\"", result->suffix);
+        if (!result->suffix ||
+            !*result->suffix ||
+            strstr(record, streamfilter)) {
+
+            /*
+             * Our validation is: check that the content of out file is found
+             * in the output record.
+             */
+            check = strstr(record, out);
+            if (!check) {
+                fprintf(stderr, "Validator mismatch::\n"
+                                "Target: <<%s>>, Suffix: <<%s>\n"
+                                "Filtered record: <<%s>>\n"
+                                "Expected record: <<%s>>\n",
+                                result->target, result->suffix,
+                                (char *)record, out);
+            }
+            TEST_CHECK(check != NULL);
+            result->nmatched++;
+        }
     }
     if (size > 0) {
         flb_free(record);
@@ -146,7 +171,14 @@ static int cb_check_result(void *record, size_t size, void *data)
     return 0;
 }
 
-static struct kube_test *kube_test_create(char *target, int type, char *suffix, char *parserconf, ...)
+static void kube_test_destroy(struct kube_test *ctx)
+{
+    flb_stop(ctx->flb);
+    flb_destroy(ctx->flb);
+    flb_free(ctx);
+}
+
+static void kube_test_create(char *target, int type, char *suffix, char *parserconf, int nExpected, ...)
 {
     int ret;
     int in_ffd;
@@ -163,6 +195,7 @@ static struct kube_test *kube_test_create(char *target, int type, char *suffix, 
     result.nmatched = 0;
     result.target = target;
     result.suffix = suffix;
+    result.type = type;
 
     /* Compose path pattern based on target */
     snprintf(path, sizeof(path) - 1, "%s*.log", target);
@@ -191,25 +224,29 @@ static struct kube_test *kube_test_create(char *target, int type, char *suffix, 
                             NULL);
         TEST_CHECK(ret == 0);
     }
+#ifdef FLB_HAVE_SYSTEMD
     else if (type == KUBE_SYSTEMD) {
+        sprintf(kube_test_id, "KUBE_TEST=%u%lu", getpid(), random());
         in_ffd = flb_input(ctx->flb, "systemd", NULL);
         ret = flb_input_set(ctx->flb, in_ffd,
                             "Tag", "kube.*",
-                            "Systemd_Filter", "KUBE_TEST=2018",
+                            "Systemd_Filter", kube_test_id,
                             NULL);
         TEST_CHECK(ret == 0);
     }
+#endif
 
     filter_ffd = flb_filter(ctx->flb, "kubernetes", NULL);
     ret = flb_filter_set(ctx->flb, filter_ffd,
                          "Match", "kube.*",
                          "Kube_URL", KUBE_URL,
                          "k8s-logging.parser", "On",
+                         "k8s-logging.exclude", "On",
                          "Kube_Meta_Preload_Cache_Dir", "../tests/runtime/data/kubernetes",
                          NULL);
 
     /* Iterate number of arguments for filter_kubernetes additional options */
-    va_start(va, parserconf);
+    va_start(va, nExpected);
     while ((key = va_arg(va, char *))) {
         value = va_arg(va, char *);
         if (!value) {
@@ -225,11 +262,13 @@ static struct kube_test *kube_test_create(char *target, int type, char *suffix, 
                              "Regex_Parser", "filter-kube-test",
                              NULL);
     }
+#ifdef FLB_HAVE_SYSTEMD
     else if (type == KUBE_SYSTEMD) {
         flb_filter_set(ctx->flb, filter_ffd,
                        "Use_Journal", "On",
                        NULL);
     }
+#endif
 
     /* Prepare output callback context*/
     cb_data.cb = cb_check_result;
@@ -243,6 +282,7 @@ static struct kube_test *kube_test_create(char *target, int type, char *suffix, 
                    "format", "json",
                    NULL);
 
+#ifdef FLB_HAVE_SYSTEMD
     /*
      *  If the source of data is Systemd, just let the output lib plugin
      * to process one record only, otherwise when the test case stop after
@@ -254,6 +294,7 @@ static struct kube_test *kube_test_create(char *target, int type, char *suffix, 
                        "Max_Records", "1",
                        NULL);
     }
+#endif
 
     /* Start the engine */
     ret = flb_start(ctx->flb);
@@ -261,158 +302,163 @@ static struct kube_test *kube_test_create(char *target, int type, char *suffix, 
     if (ret == -1) {
         exit(EXIT_FAILURE);
     }
+#ifdef FLB_HAVE_SYSTEMD
+    if (type == KUBE_SYSTEMD) {
+        TEST_CHECK_(flb_test_systemd_send() >= 0,
+                    "Error sending sample message to journal");
+    }
+#endif
 
     /* Poll for up to 2 seconds or until we got a match */
     for (ret = 0; ret < 2000 && result.nmatched == 0; ret++) {
         usleep(1000);
     }
-    TEST_CHECK(result.nmatched);
+    TEST_CHECK(result.nmatched == nExpected);
 
-    return ctx;
-}
-
-static void kube_test_destroy(struct kube_test *ctx)
-{
-    flb_stop(ctx->flb);
-    flb_destroy(ctx->flb);
-    flb_free(ctx);
+    kube_test_destroy(ctx);
 }
 
 void flb_test_apache_logs()
 {
-    struct kube_test *ctx;
-
-    ctx = kube_test_create(T_APACHE_LOGS, KUBE_TAIL, "", STD_PARSER, NULL);
-    if (!ctx) {
-        exit(EXIT_FAILURE);
-    }
-    kube_test_destroy(ctx);
+    kube_test_create(T_APACHE_LOGS, KUBE_TAIL, "", STD_PARSER, 1, NULL);
 }
 
 void flb_test_apache_logs_merge()
 {
-    struct kube_test *ctx;
-
-    ctx = kube_test_create(T_APACHE_LOGS, KUBE_TAIL, "", STD_PARSER,
-                           "Merge_Log", "On",
-                           "Merge_Log_Key", "merge",
-                           NULL);
-    if (!ctx) {
-        exit(EXIT_FAILURE);
-    }
-    kube_test_destroy(ctx);
+    kube_test_create(T_APACHE_LOGS, KUBE_TAIL, "", STD_PARSER,
+                     1,
+                     "Merge_Log", "On",
+                     "Merge_Log_Key", "merge",
+                     NULL);
 }
 
 void flb_test_apache_logs_annotated()
 {
-    struct kube_test *ctx;
-
-    ctx = kube_test_create(T_APACHE_LOGS_ANN, KUBE_TAIL, "", STD_PARSER,
-                           "Merge_Log", "On",
-                           NULL);
-    if (!ctx) {
-        exit(EXIT_FAILURE);
-    }
-    kube_test_destroy(ctx);
+    kube_test_create(T_APACHE_LOGS_ANN, KUBE_TAIL, "", STD_PARSER,
+                     1,
+                     "Merge_Log", "On",
+                     NULL);
 }
 
 void flb_test_apache_logs_annotated_invalid()
 {
-    struct kube_test *ctx;
+    kube_test_create(T_APACHE_LOGS_ANN_INV, KUBE_TAIL, "", STD_PARSER, 1, NULL);
+}
 
-    ctx = kube_test_create(T_APACHE_LOGS_ANN_INV, KUBE_TAIL, "", STD_PARSER,
-                           NULL);
-    if (!ctx) {
-        exit(EXIT_FAILURE);
-    }
-    kube_test_destroy(ctx);
+void flb_test_apache_logs_annotated_exclude()
+{
+    kube_test_create(T_APACHE_LOGS_ANN_EXCL, KUBE_TAIL, "", STD_PARSER, 0, NULL);
 }
 
 void flb_test_apache_logs_annotated_merge()
 {
-    struct kube_test *ctx;
-
-    ctx = kube_test_create(T_APACHE_LOGS_ANN_MERGE, KUBE_TAIL, "", STD_PARSER,
-                           "Merge_Log", "On",
-                           "Merge_Log_Key", "merge", NULL);
-    if (!ctx) {
-        exit(EXIT_FAILURE);
-    }
-    kube_test_destroy(ctx);
+    kube_test_create(T_APACHE_LOGS_ANN_MERGE, KUBE_TAIL, "", STD_PARSER, 1,
+                     "Merge_Log", "On",
+                     "Merge_Log_Key", "merge", NULL);
 }
 
 void flb_test_json_logs()
 {
-    struct kube_test *ctx;
-
-    ctx = kube_test_create(T_JSON_LOGS, KUBE_TAIL, "", STD_PARSER,
-                           "Merge_Log", "On",
-                           NULL);
-    if (!ctx) {
-        exit(EXIT_FAILURE);
-    }
-    kube_test_destroy(ctx);
+    kube_test_create(T_JSON_LOGS, KUBE_TAIL, "", STD_PARSER, 1,
+                     "Merge_Log", "On",
+                     NULL);
 }
 
 void flb_test_json_logs_invalid()
 {
-    struct kube_test *ctx;
-
-    ctx = kube_test_create(T_JSON_LOGS_INV, KUBE_TAIL, "", STD_PARSER, NULL);
-    if (!ctx) {
-        exit(EXIT_FAILURE);
-    }
-    kube_test_destroy(ctx);
+    kube_test_create(T_JSON_LOGS_INV, KUBE_TAIL, "", STD_PARSER, 1, NULL);
 }
 
 #ifdef FLB_HAVE_SYSTEMD
+#define CONTAINER_NAME "CONTAINER_NAME=k8s_kairosdb_kairosdb-914055854-b63vq_default_d6c53deb-05a4-11e8-a8c4-080027435fb7_23"
 #include <systemd/sd-journal.h>
+
+int flb_test_systemd_send()
+{
+    return sd_journal_send(
+            "@timestamp=2018-02-23T08:58:45.0Z",
+            "PRIORITY=6",
+            CONTAINER_NAME,
+            "CONTAINER_TAG=",
+            "CONTAINER_ID=56e257661383",
+            "CONTAINER_ID_FULL=56e257661383836fac4cd90a23ee8a7a02ee1538c8f35657d1a90f3de1065a22",
+            "MESSAGE=08:58:45.839 [qtp151442075-47] DEBUG [HttpParser.java:281] - filled 157/157",
+            kube_test_id,
+            NULL);
+}
+
 void flb_test_systemd_logs()
 {
     struct stat statb;
-    struct kube_test *ctx;
+    /* We want to avoid possibly getting a log from a previous run,
+       so create a unique-id for each 'send' */
+    sprintf(kube_test_id, "KUBE_TEST=%u%lu", getpid(), random());
 
     if (stat("/run/systemd/journal/socket", &statb) == 0 &&
         statb.st_mode & S_IFSOCK) {
+
+        int r;
+        sd_journal *journal;
+        r = sd_journal_open(&journal, 0);
+        if (r < 0) {
+            flb_error("Skip test: journal error: ", strerror(-r));
+            return;
+        }
+
+        r = sd_journal_get_fd(journal);
+        if (r < 0) {
+            flb_error("Skip test: journal fd error: ", strerror(-r));
+            sd_journal_close(journal);
+            return;
+        }
+        sd_journal_add_match(journal, CONTAINER_NAME, 0);
+        sd_journal_seek_tail(journal);
 
         /*
          * Send test message to Journal. If this fails (e.g. journal is
          * not running then skip the test.
          */
-        if (sd_journal_send(
-                        "@timestamp=2018-02-23T08:58:45.0Z",
-                        "PRIORITY=6",
-                        "CONTAINER_NAME=k8s_kairosdb_kairosdb-914055854-b63vq_default_d6c53deb-05a4-11e8-a8c4-080027435fb7_23",
-                        "CONTAINER_TAG=",
-                        "CONTAINER_ID=56e257661383",
-                        "CONTAINER_ID_FULL=56e257661383836fac4cd90a23ee8a7a02ee1538c8f35657d1a90f3de1065a22",
-                        "MESSAGE=08:58:45.839 [qtp151442075-47] DEBUG [HttpParser.java:281] - filled 157/157",
-                        "KUBE_TEST=2018",
-                        NULL) == 0) {
+        if (flb_test_systemd_send() < 0) {
 
-            ctx = kube_test_create(T_SYSTEMD_SIMPLE, KUBE_SYSTEMD, "", STD_PARSER,
-                                   "Merge_Log", "On",
-                                   NULL);
-            if (!ctx) {
-                exit(EXIT_FAILURE);
-            }
-            kube_test_destroy(ctx);
+            flb_error("Skip test: journal send error: ", strerror(-r));
+            sd_journal_close(journal);
+            return;
         }
+
+        r = sd_journal_previous(journal);
+        if (r < 0) {
+            flb_error("Skip test: journal previous error: ", strerror(-r));
+            sd_journal_close(journal);
+            return;
+        }
+
+        r = sd_journal_next(journal);
+        if (r < 0) {
+            flb_error("Skip test: journal next error: ", strerror(-r));
+            sd_journal_close(journal);
+            return;
+        }
+
+        r = sd_journal_wait(journal, 2000);
+        if (r < 0) {
+            flb_error("Skip test: journal wait error: ", strerror(-r));
+            sd_journal_close(journal);
+            return;
+        }
+        sd_journal_close(journal);
+
+        kube_test_create(T_SYSTEMD_SIMPLE, KUBE_SYSTEMD, "", STD_PARSER, 1,
+                         "Merge_Log", "On",
+                         NULL);
     }
 }
 #endif
 
 void flb_test_multi_logs(char *log, char *suffix)
 {
-    struct kube_test *ctx;
-
     flb_info("\n");
     flb_info("Multi test: log <%s>", log);
-    ctx = kube_test_create(log, KUBE_TAIL, suffix, "../tests/runtime/data/kubernetes/multi-parsers.conf", "Merge_Log", "On", NULL);
-    if (!ctx) {
-        exit(EXIT_FAILURE);
-    }
-    kube_test_destroy(ctx);
+    kube_test_create(log, KUBE_TAIL, suffix, "../tests/runtime/data/kubernetes/multi-parsers.conf", 1, "Merge_Log", "On", NULL);
 }
 void flb_test_multi_init_stdout() { flb_test_multi_logs(T_MULTI_INIT, "stdout"); }
 void flb_test_multi_init_stderr() { flb_test_multi_logs(T_MULTI_INIT, "stderr"); }
@@ -424,6 +470,7 @@ TEST_LIST = {
     {"kube_apache_logs_merge", flb_test_apache_logs_merge},
     {"kube_apache_logs_annotated", flb_test_apache_logs_annotated},
     {"kube_apache_logs_annotated_invalid", flb_test_apache_logs_annotated_invalid},
+    {"kube_apache_logs_annotated_exclude", flb_test_apache_logs_annotated_exclude},
     {"kube_apache_logs_annotated_merge_log", flb_test_apache_logs_annotated_merge},
     {"kube_json_logs", flb_test_json_logs},
     {"kube_json_logs_invalid", flb_test_json_logs_invalid},

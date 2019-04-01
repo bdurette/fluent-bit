@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -135,11 +136,11 @@ static int pack_line(char *data, size_t data_size, struct flb_tail_file *file,
     flb_time_get(&out_time);
 
     flb_tail_file_pack_line(&mp_sbuf, &mp_pck, &out_time, data, data_size, file);
-    flb_input_dyntag_append_raw(ctx->i_ins,
-                                file->tag_buf,
-                                file->tag_len,
-                                mp_sbuf.data,
-                                mp_sbuf.size);
+    flb_input_chunk_append_raw(ctx->i_ins,
+                               file->tag_buf,
+                               file->tag_len,
+                               mp_sbuf.data,
+                               mp_sbuf.size);
     msgpack_sbuffer_destroy(&mp_sbuf);
 
     return 0;
@@ -165,11 +166,11 @@ int flb_tail_mult_process_first(time_t now,
         msgpack_packer_init(&mp_pck, &mp_sbuf, msgpack_sbuffer_write);
 
         flb_tail_mult_flush(&mp_sbuf, &mp_pck, file, ctx);
-        flb_input_dyntag_append_raw(ctx->i_ins,
-                                    file->tag_buf,
-                                    file->tag_len,
-                                    mp_sbuf.data,
-                                    mp_sbuf.size);
+        flb_input_chunk_append_raw(ctx->i_ins,
+                                   file->tag_buf,
+                                   file->tag_len,
+                                   mp_sbuf.data,
+                                   mp_sbuf.size);
         msgpack_sbuffer_destroy(&mp_sbuf);
     }
 
@@ -373,7 +374,7 @@ int flb_tail_mult_flush(msgpack_sbuffer *mp_sbuf, msgpack_packer *mp_pck,
     msgpack_unpacked_init(&result);
     msgpack_unpacked_init(&cont);
 
-    while (msgpack_unpack_next(&result, data, bytes, &off)) {
+    while (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS) {
         root = result.data;
         if (root.type != MSGPACK_OBJECT_MAP) {
             continue;
@@ -389,7 +390,7 @@ int flb_tail_mult_flush(msgpack_sbuffer *mp_sbuf, msgpack_packer *mp_pck,
             /* Always check if the 'next' entry is a continuation */
             total = 0;
             if (i + 1 == root.via.map.size) {
-                while (msgpack_unpack_next(&cont, data, bytes, &next_off)) {
+                while (msgpack_unpack_next(&cont, data, bytes, &next_off) == MSGPACK_UNPACK_SUCCESS) {
                     next = cont.data;
                     if (next.type != MSGPACK_OBJECT_STR) {
                         break;
@@ -410,7 +411,7 @@ int flb_tail_mult_flush(msgpack_sbuffer *mp_sbuf, msgpack_packer *mp_pck,
                  * value field.
                  */
                 next_off = off;
-                while (msgpack_unpack_next(&cont, data, bytes, &next_off)) {
+                while (msgpack_unpack_next(&cont, data, bytes, &next_off) == MSGPACK_UNPACK_SUCCESS) {
                     next = cont.data;
                     if (next.type != MSGPACK_OBJECT_STR) {
                         break;
@@ -469,11 +470,11 @@ int flb_tail_mult_pending_flush(struct flb_input_instance *i_ins,
 
         flb_tail_mult_flush(&mp_sbuf, &mp_pck, file, ctx);
 
-        flb_input_dyntag_append_raw(i_ins,
-                                    file->tag_buf,
-                                    file->tag_len,
-                                    mp_sbuf.data,
-                                    mp_sbuf.size);
+        flb_input_chunk_append_raw(i_ins,
+                                   file->tag_buf,
+                                   file->tag_len,
+                                   mp_sbuf.data,
+                                   mp_sbuf.size);
         msgpack_sbuffer_destroy(&mp_sbuf);
     }
 

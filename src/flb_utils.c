@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -210,6 +211,10 @@ struct mk_list *flb_utils_split(char *line, int separator, int max_split)
     char *val;
     struct mk_list *list;
     struct flb_split_entry *new;
+
+    if (!line) {
+        return NULL;
+    }
 
     list = flb_malloc(sizeof(struct mk_list));
     if (!list) {

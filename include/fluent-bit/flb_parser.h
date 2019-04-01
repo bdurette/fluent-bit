@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -73,9 +74,15 @@ enum {
 static inline time_t flb_parser_tm2time(const struct tm *src)
 {
     struct tm tmp;
+    time_t res;
 
     tmp = *src;
-    return timegm(&tmp) - src->tm_gmtoff;
+#ifdef FLB_HAVE_GMTOFF
+    res = timegm(&tmp) - src->tm_gmtoff;
+#else
+    res = timegm(&tmp);
+#endif
+    return res;
 }
 
 

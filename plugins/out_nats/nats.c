@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -95,7 +96,7 @@ static int msgpack_to_json(void *data, size_t bytes,
 
     /* Iterate the original buffer and perform adjustments */
     msgpack_unpacked_init(&result);
-    while (msgpack_unpack_next(&result, data, bytes, &off)) {
+    while (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS) {
         array_size++;
     }
     msgpack_unpacked_destroy(&result);
@@ -107,7 +108,7 @@ static int msgpack_to_json(void *data, size_t bytes,
     msgpack_packer_init(&mp_pck, &mp_sbuf, msgpack_sbuffer_write);
     msgpack_pack_array(&mp_pck, array_size);
 
-    while (msgpack_unpack_next(&result, data, bytes, &off)) {
+    while (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS) {
         if (result.data.type != MSGPACK_OBJECT_ARRAY) {
             continue;
         }
@@ -189,8 +190,8 @@ void cb_nats_flush(void *data, size_t bytes,
     }
 
     /* Compose the NATS Publish request */
-    request = flb_malloc(json_len + 32);
-    req_len = snprintf(request, json_len + 32, "PUB %s %zu\r\n",
+    request = flb_malloc(json_len + tag_len + 32);
+    req_len = snprintf(request, tag_len + 32, "PUB %s %zu\r\n",
                        tag, json_len);
 
     /* Append JSON message and ending CRLF */

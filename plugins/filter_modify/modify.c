@@ -2,7 +2,8 @@
 
 /*  Fluent Bit
  *  ==========
- *  Copyright (C) 2015-2017 Treasure Data Inc.
+ *  Copyright (C) 2019      The Fluent Bit Authors
+ *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -44,6 +45,7 @@ static void condition_free(struct modify_condition *condition)
     if (condition->b_is_regex) {
         flb_regex_destroy(condition->b_regex);
     }
+    flb_free(condition);
 }
 
 static void teardown(struct filter_modify_ctx *ctx)
@@ -131,6 +133,7 @@ static int setup(struct filter_modify_ctx *ctx,
 
             condition = flb_calloc(1, sizeof(struct modify_condition));
             if (!condition) {
+                flb_errno();
                 flb_error("[filter_modify] Unable to allocate memory for "
                           "condition");
                 teardown(ctx);
@@ -1395,7 +1398,7 @@ static int cb_modify_filter(void *data, size_t bytes,
     // [1123123, {"Mem.total"=>4050908, "Mem.used"=>476576, "Mem.free"=>3574332 } ]
 
     msgpack_unpacked_init(&result);
-    while (msgpack_unpack_next(&result, data, bytes, &off)) {
+    while (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS) {
         if (result.data.type == MSGPACK_OBJECT_ARRAY) {
             modifications +=
                 apply_modifying_rules(&packer, &result.data, ctx);

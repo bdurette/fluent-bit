@@ -50,7 +50,7 @@ macro(REGISTER_OUT_PLUGIN name)
   endif()
 endmacro()
 
-# REGISTER_OUT_PLUGIN
+# REGISTER_FILTER_PLUGIN
 macro(REGISTER_FILTER_PLUGIN name)
   string(FIND ${name} "=" pos)
   if(pos GREATER -1)
@@ -77,7 +77,6 @@ endmacro()
 
 # FLB_PLUGIN: used by plugins to perform registration and linking
 macro(FLB_PLUGIN name src deps)
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC")
   add_library(flb-plugin-${name} STATIC ${src})
   add_sanitizers(flb-plugin-${name})
   target_link_libraries(flb-plugin-${name} fluent-bit-static msgpackc-static ${deps})
@@ -106,21 +105,32 @@ endif()
 
 REGISTER_IN_PLUGIN("in_dummy")
 REGISTER_IN_PLUGIN("in_head")
-REGISTER_IN_PLUGIN("in_exec")
 REGISTER_IN_PLUGIN("in_health")
 REGISTER_IN_PLUGIN("in_http")
+REGISTER_IN_PLUGIN("in_storage_backlog")
+
+if (FLB_STREAM_PROCESSOR)
+  REGISTER_IN_PLUGIN("in_stream_processor")
+endif()
 
 if (NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
   REGISTER_IN_PLUGIN("in_serial")
 endif()
 
-REGISTER_IN_PLUGIN("in_stdin")
+if(FLB_REGEX)
+  REGISTER_IN_PLUGIN("in_stdin")
+endif()
+
+if(FLB_PARSER)
+  REGISTER_IN_PLUGIN("in_syslog")
+  REGISTER_IN_PLUGIN("in_exec")
+endif()
+
 REGISTER_IN_PLUGIN("in_tcp")
 REGISTER_IN_PLUGIN("in_mqtt")
 REGISTER_IN_PLUGIN("in_lib")
 REGISTER_IN_PLUGIN("in_forward")
 REGISTER_IN_PLUGIN("in_random")
-REGISTER_IN_PLUGIN("in_syslog")
 REGISTER_OUT_PLUGIN("out_azure")
 REGISTER_OUT_PLUGIN("out_bigquery")
 REGISTER_OUT_PLUGIN("out_counter")
@@ -148,15 +158,15 @@ REGISTER_OUT_PLUGIN("out_gelf")
 
 # FILTERS
 # =======
-if (NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
-  REGISTER_FILTER_PLUGIN("filter_grep")
-endif()
 REGISTER_FILTER_PLUGIN("filter_stdout")
 REGISTER_FILTER_PLUGIN("filter_throttle")
 
 if(FLB_REGEX)
+  REGISTER_FILTER_PLUGIN("filter_grep")
   REGISTER_FILTER_PLUGIN("filter_kubernetes")
   REGISTER_FILTER_PLUGIN("filter_parser")
+  REGISTER_FILTER_PLUGIN("filter_nest")
+  REGISTER_FILTER_PLUGIN("filter_modify")
 endif()
 
 if(FLB_LUAJIT)
@@ -164,8 +174,6 @@ if(FLB_LUAJIT)
 endif()
 
 REGISTER_FILTER_PLUGIN("filter_record_modifier")
-REGISTER_FILTER_PLUGIN("filter_nest")
-REGISTER_FILTER_PLUGIN("filter_modify")
 
 # Register external input and output plugins
 if(EXT_IN_PLUGINS)

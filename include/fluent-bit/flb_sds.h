@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -35,11 +36,13 @@
 
 typedef char *flb_sds_t;
 
+#pragma pack(push, 1)
 struct flb_sds {
     uint64_t len;        /* used */
     uint64_t alloc;      /* excluding the header and null terminator */
     char buf[];
-} __attribute__ ((__packed__));
+};
+#pragma pack(pop)
 
 #define FLB_SDS_HEADER(s)  ((struct flb_sds *) (s - FLB_SDS_HEADER_SIZE))
 

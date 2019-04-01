@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,6 +27,7 @@
 #include <signal.h>
 
 #include <monkey/mk_core.h>
+#include <fluent-bit/flb_compat.h>
 #include <fluent-bit/flb_info.h>
 #include <fluent-bit/flb_env.h>
 #include <fluent-bit/flb_macros.h>
@@ -121,10 +123,7 @@ static void flb_help(int rc, struct flb_config *config)
 
     printf("Usage: fluent-bit [OPTION]\n\n");
     printf("%sAvailable Options%s\n", ANSI_BOLD, ANSI_RESET);
-#ifdef FLB_HAVE_BUFFERING
-    printf("  -b  --buf_path=PATH\tspecify a buffering path\n");
-    printf("  -B  --buf_workers=N\tnumber of workers for buffering\n");
-#endif
+    printf("  -b  --storage_path=PATH\tspecify a storage buffering path\n");
     printf("  -c  --config=FILE\tspecify an optional configuration file\n");
 #ifdef FLB_HAVE_FORK
     printf("  -d, --daemon\t\trun Fluent Bit in background mode\n");
@@ -136,7 +135,9 @@ static void flb_help(int rc, struct flb_config *config)
     printf("  -m, --match=MATCH\tset plugin match, same as '-p match=abc'\n");
     printf("  -o, --output=OUTPUT\tset an output\n");
     printf("  -p, --prop=\"A=B\"\tset plugin configuration property\n");
+#ifdef FLB_HAVE_PARSER
     printf("  -R, --parser=FILE\tspecify a parser configuration file\n");
+#endif
     printf("  -e, --plugin=FILE\tload an external plugin (shared lib)\n");
     printf("  -l, --log_file=FILE\twrite log info to a file\n");
     printf("  -t, --tag=TAG\t\tset plugin tag, same as '-p tag=abc'\n");
@@ -158,7 +159,7 @@ static void flb_help(int rc, struct flb_config *config)
     /* Iterate each supported input */
     mk_list_foreach(head, &config->in_plugins) {
         in = mk_list_entry(head, struct flb_input_plugin, _head);
-        if (strcmp(in->name, "lib") == 0) {
+        if (strcmp(in->name, "lib") == 0 || (in->flags & FLB_INPUT_PRIVATE)) {
             /* useless..., just skip it. */
             continue;
         }
@@ -351,7 +352,11 @@ static int flb_service_conf_path_set(struct flb_config *config, char *file)
     char *end;
     char path[PATH_MAX + 1];
 
+#ifdef _MSC_VER
+    p = _fullpath(path, file, PATH_MAX + 1);
+#else
     p = realpath(file, path);
+#endif
     if (!p) {
         return -1;
     }
@@ -460,7 +465,7 @@ static int flb_service_conf(struct flb_config *config, char *file)
 
         /* Create an instace of the plugin */
         tmp = flb_env_var_translate(config->env, name);
-        in = flb_input_new(config, tmp, NULL);
+        in = flb_input_new(config, tmp, NULL, FLB_TRUE);
         mk_mem_free(name);
         if (!in) {
             fprintf(stderr, "Input plugin '%s' cannot be loaded\n", tmp);
@@ -584,11 +589,9 @@ int main(int argc, char **argv)
     flb_stacktrace_init(argv[0]);
 #endif
 
-#ifndef _WIN32
     /* Setup long-options */
     static const struct option long_opts[] = {
-        { "buf_path",        required_argument, NULL, 'b' },
-        { "buf_workers",     required_argument, NULL, 'B' },
+        { "storage_path",    required_argument, NULL, 'b' },
         { "config",          required_argument, NULL, 'c' },
 #ifdef FLB_HAVE_FORK
         { "daemon",          no_argument      , NULL, 'd' },
@@ -601,7 +604,9 @@ int main(int argc, char **argv)
         { "match",           required_argument, NULL, 'm' },
         { "output",          required_argument, NULL, 'o' },
         { "filter",          required_argument, NULL, 'F' },
+#ifdef FLB_HAVE_PARSER
         { "parser",          required_argument, NULL, 'R' },
+#endif
         { "prop",            required_argument, NULL, 'p' },
         { "plugin",          required_argument, NULL, 'e' },
         { "tag",             required_argument, NULL, 't' },
@@ -618,7 +623,6 @@ int main(int argc, char **argv)
 #endif
         { NULL, 0, NULL, 0 }
     };
-#endif
 
 #ifdef FLB_HAVE_MTRACE
     /* Start tracing malloc and free */
@@ -654,22 +658,14 @@ int main(int argc, char **argv)
 
     /* Parse the command line options */
     while ((opt = getopt_long(argc, argv,
-                              "b:B:c:df:i:m:o:R:F:p:e:"
+                              "b:c:df:i:m:o:R:F:p:e:"
                               "t:l:vqVhL:HP:s:S",
                               long_opts, NULL)) != -1) {
 
         switch (opt) {
-#ifdef FLB_HAVE_BUFFERING
         case 'b':
-            config->buffer_path = flb_strdup(optarg);
-            if (config->buffer_workers <= 0) {
-                config->buffer_workers = 1;
-            }
+            config->storage_path = flb_strdup(optarg);
             break;
-        case 'B':
-            config->buffer_workers = atoi(optarg);
-            break;
-#endif
         case 'c':
             cfg_file = flb_strdup(optarg);
             break;
@@ -691,10 +687,10 @@ int main(int argc, char **argv)
             exit(EXIT_FAILURE);
 #endif
         case 'f':
-            config->flush = atoi(optarg);
+            config->flush = atof(optarg);
             break;
         case 'i':
-            in = flb_input_new(config, optarg, NULL);
+            in = flb_input_new(config, optarg, NULL, FLB_TRUE);
             if (!in) {
                 flb_utils_error(FLB_ERR_INPUT_INVALID);
             }
@@ -715,7 +711,7 @@ int main(int argc, char **argv)
             }
             last_plugin = PLUGIN_OUTPUT;
             break;
-#ifdef FLB_HAVE_REGEX
+#ifdef FLB_HAVE_PARSER
         case 'R':
             ret = flb_parser_conf_file(optarg, config);
             if (ret != 0) {
@@ -824,7 +820,7 @@ int main(int argc, char **argv)
     }
 
     /* Validate flush time (seconds) */
-    if (config->flush < 1) {
+    if (config->flush <= (double) 0.0) {
         flb_utils_error(FLB_ERR_CFG_FLUSH);
     }
 

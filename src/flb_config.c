@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,7 +43,7 @@ int flb_regex_init();
 
 struct flb_service_config service_configs[] = {
     {FLB_CONF_STR_FLUSH,
-     FLB_CONF_TYPE_INT,
+     FLB_CONF_TYPE_DOUBLE,
      offsetof(struct flb_config, flush)},
 
     {FLB_CONF_STR_GRACE,
@@ -82,19 +83,30 @@ struct flb_service_config service_configs[] = {
      offsetof(struct flb_config, http_port)},
 #endif
 
-#ifdef FLB_HAVE_BUFFERING
-    {FLB_CONF_STR_BUF_PATH,
+    /* Storage */
+    {FLB_CONF_STORAGE_PATH,
      FLB_CONF_TYPE_STR,
-     offsetof(struct flb_config, buffer_path)},
+     offsetof(struct flb_config, storage_path)},
+    {FLB_CONF_STORAGE_SYNC,
+     FLB_CONF_TYPE_STR,
+     offsetof(struct flb_config, storage_sync)},
+    {FLB_CONF_STORAGE_CHECKSUM,
+     FLB_CONF_TYPE_BOOL,
+     offsetof(struct flb_config, storage_checksum)},
+    {FLB_CONF_STORAGE_BL_MEM_LIMIT,
+     FLB_CONF_TYPE_STR,
+     offsetof(struct flb_config, storage_bl_mem_limit)},
 
-    {FLB_CONF_STR_BUF_WORKERS,
-     FLB_CONF_TYPE_INT,
-     offsetof(struct flb_config, buffer_workers)},
-#endif
-
+    /* Coroutines */
     {FLB_CONF_STR_CORO_STACK_SIZE,
      FLB_CONF_TYPE_INT,
      offsetof(struct flb_config, coro_stack_size)},
+
+#ifdef FLB_HAVE_STREAM_PROCESSOR
+    {FLB_CONF_STR_STREAMS_FILE,
+     FLB_CONF_TYPE_STR,
+     offsetof(struct flb_config, stream_processor_file)},
+#endif
 
     {NULL, FLB_CONF_TYPE_OTHER, 0} /* end of array */
 };
@@ -118,11 +130,7 @@ struct flb_config *flb_config_init()
 
     /* Flush */
     config->flush        = FLB_CONFIG_FLUSH_SECS;
-#if defined FLB_HAVE_FLUSH_PTHREADS
-    config->flush_method = FLB_FLUSH_PTHREADS;
-#elif defined FLB_HAVE_FLUSH_LIBCO
     config->flush_method = FLB_FLUSH_LIBCO;
-#endif
     config->daemon       = FLB_FALSE;
     config->init_time    = time(NULL);
     config->kernel       = flb_kernel_info();
@@ -136,11 +144,9 @@ struct flb_config *flb_config_init()
     config->http_port    = flb_strdup(FLB_CONFIG_HTTP_PORT);
 #endif
 
-#ifdef FLB_HAVE_BUFFERING
-    config->buffer_ctx     = NULL;
-    config->buffer_path    = NULL;
-    config->buffer_workers = 0;
-#endif
+    config->cio          = NULL;
+    config->storage_path = NULL;
+    config->storage_input_plugin = NULL;
 
 #ifdef FLB_HAVE_SQLDB
     mk_list_init(&config->sqldb_list);
@@ -220,41 +226,42 @@ void flb_config_exit(struct flb_config *config)
 
     /* release resources */
     if (config->ch_event.fd) {
-        close(config->ch_event.fd);
+        mk_event_closesocket(config->ch_event.fd);
     }
 
     /* Pipe */
     if (config->ch_data[0]) {
-        close(config->ch_data[0]);
-        close(config->ch_data[1]);
+        mk_event_closesocket(config->ch_data[0]);
+        mk_event_closesocket(config->ch_data[1]);
     }
 
     /* Channel manager */
     if (config->ch_manager[0] > 0) {
-        close(config->ch_manager[0]);
+        mk_event_closesocket(config->ch_manager[0]);
         if (config->ch_manager[0] != config->ch_manager[1]) {
-            close(config->ch_manager[1]);
+            mk_event_closesocket(config->ch_manager[1]);
         }
     }
 
     /* Channel notifications */
     if (config->ch_notif[0] > 0) {
-        close(config->ch_notif[0]);
+        mk_event_closesocket(config->ch_notif[0]);
         if (config->ch_notif[0] != config->ch_notif[1]) {
-            close(config->ch_notif[1]);
+            mk_event_closesocket(config->ch_notif[1]);
         }
     }
 
     /* Collectors */
     mk_list_foreach_safe(head, tmp, &config->collectors) {
         collector = mk_list_entry(head, struct flb_input_collector, _head);
-        mk_event_del(config->evl, &collector->event);
 
         if (collector->type == FLB_COLLECT_TIME) {
-            mk_event_timeout_destroy(config->evl, &collector->event);
             if (collector->fd_timer > 0) {
-                close(collector->fd_timer);
+                mk_event_timeout_destroy(config->evl, &collector->event);
+                mk_event_closesocket(collector->fd_timer);
             }
+        } else {
+            mk_event_del(config->evl, &collector->event);
         }
 
         mk_list_del(&collector->_head);
@@ -275,7 +282,7 @@ void flb_config_exit(struct flb_config *config)
     if (config->evl) {
         mk_event_del(config->evl, &config->event_flush);
     }
-    close(config->flush_fd);
+    mk_event_closesocket(config->flush_fd);
 
     /* Release scheduler */
     flb_sched_exit(config);
@@ -294,8 +301,14 @@ void flb_config_exit(struct flb_config *config)
     flb_stats_exit(config);
 #endif
 
-#ifdef FLB_HAVE_BUFFERING
-    flb_free(config->buffer_path);
+    if (config->storage_path) {
+        flb_free(config->storage_path);
+    }
+
+#ifdef FLB_HAVE_STREAM_PROCESSOR
+    if (config->stream_processor_file) {
+        flb_free(config->stream_processor_file);
+    }
 #endif
 
     if (config->evl) {
@@ -373,6 +386,7 @@ int flb_config_set_property(struct flb_config *config,
     int i=0;
     int ret = -1;
     int *i_val;
+    double *d_val;
     char **s_val;
     size_t len = strnlen(k, 256);
     char *key = service_configs[0].key;
@@ -392,7 +406,7 @@ int flb_config_set_property(struct flb_config *config,
                 }
             }
             else if (!strncasecmp(key, FLB_CONF_STR_PARSERS_FILE, 32)) {
-#ifdef FLB_HAVE_REGEX
+#ifdef FLB_HAVE_PARSER
                 tmp = flb_env_var_translate(config->env, v);
                 ret = flb_parser_conf_file(tmp, config);
                 flb_free(tmp);
@@ -414,6 +428,11 @@ int flb_config_set_property(struct flb_config *config,
                 case FLB_CONF_TYPE_INT:
                     i_val  = (int*)((char*)config + service_configs[i].offset);
                     *i_val = atoi(tmp);
+                    flb_free(tmp);
+                    break;
+                case FLB_CONF_TYPE_DOUBLE:
+                    d_val  = (double*)((char*)config + service_configs[i].offset);
+                    *d_val = atof(tmp);
                     flb_free(tmp);
                     break;
                 case FLB_CONF_TYPE_BOOL:

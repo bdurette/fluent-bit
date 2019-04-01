@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -359,7 +360,7 @@ void flb_pack_print(char *data, size_t bytes)
     size_t off = 0, cnt = 0;
 
     msgpack_unpacked_init(&result);
-    while (msgpack_unpack_next(&result, data, bytes, &off)) {
+    while (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS) {
         /* Check if we are processing an internal Fluent Bit record */
         ret = pack_print_fluent_record(cnt, result);
         if (ret == 0) {
@@ -666,11 +667,11 @@ int flb_msgpack_raw_to_json_str(char *buf, size_t buf_size,
 
     msgpack_unpacked_init(&result);
     ret = msgpack_unpack_next(&result, buf, buf_size, &off);
-    if (ret == -1) {
+    if (ret != MSGPACK_UNPACK_SUCCESS) {
         return -1;
     }
 
-    json_size = (buf_size * 1.2);
+    json_size = (buf_size * 1.8);
     json_buf = flb_calloc(1, json_size);
     if (!json_buf) {
         flb_errno();
@@ -681,7 +682,7 @@ int flb_msgpack_raw_to_json_str(char *buf, size_t buf_size,
     while (1) {
         ret = flb_msgpack_to_json(json_buf, json_size, &result.data);
         if (ret <= 0) {
-            json_size += 128;
+            json_size *= 2;
             tmp = flb_realloc(json_buf, json_size);
             if (!tmp) {
                 flb_errno();
@@ -731,7 +732,7 @@ int flb_msgpack_expand_map(char *map_data, size_t map_size,
     }
 
     msgpack_unpacked_init(&result);
-    if (!(i=msgpack_unpack_next(&result, map_data, map_size, &off))){
+    if ( (i=msgpack_unpack_next(&result, map_data, map_size, &off)) != MSGPACK_UNPACK_SUCCESS ){
         return -1;
     }
     if (result.data.type != MSGPACK_OBJECT_MAP) {
@@ -792,14 +793,14 @@ static flb_sds_t flb_msgpack_gelf_key(flb_sds_t *s, int in_array,
     for(i=0; i < prefix_key_len; i++) {
         if (!valid_char[(unsigned char)prefix_key[i]]) {
             flb_debug("[%s] invalid key char '%.*s'",  __FUNCTION__,
-                      prefix_key, prefix_key_len);
+                      prefix_key_len, prefix_key);
             return NULL;
         }
     }
     for(i=0; i < key_len; i++) {
         if (!valid_char[(unsigned char)key[i]]) {
             flb_debug("[%s] invalid key char '%.*s'",  __FUNCTION__,
-                      key, key_len);
+                      key_len, key);
             return NULL;
         }
     }
@@ -1213,6 +1214,19 @@ flb_sds_t flb_msgpack_to_gelf(flb_sds_t *s, msgpack_object *o,
                 level_key_found = FLB_TRUE;
                 key = "level";
                 key_len = 5;
+                if (v->type == MSGPACK_OBJECT_POSITIVE_INTEGER) {
+                        if ( v->via.u64 > 7 ) {
+                            flb_error("[flb_msgpack_to_gelf] level is %" PRIu64 ", but should be in 0..7", v->via.u64);
+                            return NULL;
+                        }
+                } else if (v->type == MSGPACK_OBJECT_STR){
+                    val     = (char *) v->via.str.ptr;
+                    val_len = v->via.str.size;
+                    if ( val_len != 1 || val[0] < '0' || val[0] > '7' ) {
+                            flb_error("[flb_msgpack_to_gelf] level is '%.*s', but should be in 0..7", val_len, val);
+                            return NULL;
+                    }
+                }
             }
             else if ((key_len == full_message_key_len) &&
                      !strncmp(key, full_message_key, full_message_key_len)) {
@@ -1380,7 +1394,7 @@ flb_sds_t flb_msgpack_raw_to_gelf(char *buf, size_t buf_size,
 
     msgpack_unpacked_init(&result);
     ret = msgpack_unpack_next(&result, buf, buf_size, &off);
-    if (ret == -1) {
+    if (ret != MSGPACK_UNPACK_SUCCESS) {
         return NULL;
     }
 

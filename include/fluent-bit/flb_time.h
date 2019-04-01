@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,11 +29,6 @@
 struct flb_time {
     struct timespec tm;
 };
-
-#undef FLB_TIME_FORCE_FMT_INT
-#ifdef TARGET_OS_MAC
-#define FLB_TIME_FORCE_FMT_INT /* FIXME */
-#endif
 
 /*
    to represent eventtime of fluentd
@@ -77,6 +73,7 @@ static inline int flb_time_equal(struct flb_time *t0, struct flb_time *t1) {
 }
 
 int flb_time_get(struct flb_time *tm);
+int flb_time_msleep(uint32_t ms);
 double flb_time_to_double(struct flb_time *tm);
 int flb_time_diff(struct flb_time *time1,
                   struct flb_time *time0, struct flb_time *result);

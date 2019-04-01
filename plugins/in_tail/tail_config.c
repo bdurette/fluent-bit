@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,7 +30,10 @@
 #include "tail_config.h"
 #include "tail_scan.h"
 #include "tail_dockermode.h"
+
+#ifdef FLB_HAVE_PARSER
 #include "tail_multiline.h"
+#endif
 
 struct flb_tail_config *flb_tail_config_create(struct flb_input_instance *i_ins,
                                                struct flb_config *config)
@@ -47,13 +51,13 @@ struct flb_tail_config *flb_tail_config_create(struct flb_input_instance *i_ins,
         flb_errno();
         return NULL;
     }
-    ctx->dynamic_tag = FLB_FALSE;
+    ctx->i_ins = i_ins;
     ctx->ignore_older = 0;
     ctx->skip_long_lines = FLB_FALSE;
     ctx->db_sync = -1;
 
     /* Create the channel manager */
-    ret = pipe(ctx->ch_manager);
+    ret = flb_pipe_create(ctx->ch_manager);
     if (ret == -1) {
         flb_errno();
         flb_free(ctx);
@@ -61,7 +65,7 @@ struct flb_tail_config *flb_tail_config_create(struct flb_input_instance *i_ins,
     }
 
     /* Create the pending channel */
-    ret = pipe(ctx->ch_pending);
+    ret = flb_pipe_create(ctx->ch_pending);
     if (ret == -1) {
         flb_errno();
         flb_tail_config_destroy(ctx);
@@ -69,7 +73,7 @@ struct flb_tail_config *flb_tail_config_create(struct flb_input_instance *i_ins,
     }
     /* Make pending channel non-blocking */
     for (i = 0; i <= 1; i++) {
-        ret = fcntl(ctx->ch_pending[i], F_SETFL, fcntl(ctx->ch_pending[i], F_GETFL) | O_NONBLOCK);
+        ret = flb_pipe_set_nonblocking(ctx->ch_pending[i]);
         if (ret == -1) {
             flb_errno();
             flb_tail_config_destroy(ctx);
@@ -146,6 +150,7 @@ struct flb_tail_config *flb_tail_config_create(struct flb_input_instance *i_ins,
         }
     }
 
+#ifdef FLB_HAVE_PARSER
     /* Config: multi-line support */
     tmp = flb_input_get_property("multiline", i_ins);
     if (tmp) {
@@ -159,6 +164,7 @@ struct flb_tail_config *flb_tail_config_create(struct flb_input_instance *i_ins,
             }
         }
     }
+#endif
 
     /* Config: Docker mode */
     tmp = flb_input_get_property("docker_mode", i_ins);
@@ -277,7 +283,6 @@ struct flb_tail_config *flb_tail_config_create(struct flb_input_instance *i_ins,
     if (tmp) {
         ctx->dynamic_tag = FLB_TRUE;
     }
-    i_ins->flags |= FLB_INPUT_DYN_TAG;
 
     /* Database options (needs to be set before the context) */
     tmp = flb_input_get_property("db.sync", i_ins);
@@ -308,18 +313,30 @@ struct flb_tail_config *flb_tail_config_create(struct flb_input_instance *i_ins,
         }
     }
 
+#ifdef FLB_HAVE_METRICS
+    flb_metrics_add(FLB_TAIL_METRIC_F_OPENED,
+                    "files_opened", ctx->i_ins->metrics);
+    flb_metrics_add(FLB_TAIL_METRIC_F_CLOSED,
+                    "files_closed", ctx->i_ins->metrics);
+    flb_metrics_add(FLB_TAIL_METRIC_F_ROTATED,
+                    "files_rotated", ctx->i_ins->metrics);
+#endif
+
     return ctx;
 }
 
 int flb_tail_config_destroy(struct flb_tail_config *config)
 {
+
+#ifdef FLB_HAVE_PARSER
     flb_tail_mult_destroy(config);
+#endif
 
     /* Close pipe ends */
-    close(config->ch_manager[0]);
-    close(config->ch_manager[1]);
-    close(config->ch_pending[0]);
-    close(config->ch_pending[1]);
+    flb_pipe_close(config->ch_manager[0]);
+    flb_pipe_close(config->ch_manager[1]);
+    flb_pipe_close(config->ch_pending[0]);
+    flb_pipe_close(config->ch_pending[1]);
 
 #ifdef FLB_HAVE_REGEX
     if (config->tag_regex) {

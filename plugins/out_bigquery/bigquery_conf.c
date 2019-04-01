@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -48,7 +49,7 @@ struct flb_bigquery *flb_bigquery_conf_create(struct flb_output_instance *ins,
 
     creds = flb_gcp_load_credentials(ins, config);
     if (!creds) {
-        flb_bigquery_conf_destroy(ctx);
+        flb_free(ctx);
         return NULL;
     }
     ctx->oauth_credentials = creds;
@@ -59,9 +60,22 @@ struct flb_bigquery *flb_bigquery_conf_create(struct flb_output_instance *ins,
         ctx->project_id = flb_sds_create(tmp);
     }
     else {
-        flb_error("[out_bigquery] property 'project_id' is not defined");
-        flb_bigquery_conf_destroy(ctx);
-        return NULL;
+       if (creds->project_id) {
+            tmp = flb_sds_create(creds->project_id);
+            if (tmp) {
+                ctx->project_id = tmp;
+            }
+            else {
+                flb_error("[out_bigquery] failed extracting 'project_id' from credentials.");
+                flb_bigquery_conf_destroy(ctx);
+                return NULL;
+            }
+        }
+        else {
+            flb_error("[out_bigquery] no 'project_id' configured or present in credentials.");
+            flb_bigquery_conf_destroy(ctx);
+            return NULL;
+        }
     }
 
     /* config: 'dataset_id' */
@@ -74,7 +88,7 @@ struct flb_bigquery *flb_bigquery_conf_create(struct flb_output_instance *ins,
         flb_bigquery_conf_destroy(ctx);
         return NULL;
     }
-    
+
     /* config: 'table_id' */
     tmp = flb_output_get_property("table_id", ins);
     if (tmp) {

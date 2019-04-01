@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -63,7 +64,7 @@ int flb_parser_json_do(struct flb_parser *parser,
 
     /* Make sure object is a map */
     msgpack_unpacked_init(&result);
-    if (msgpack_unpack_next(&result, mp_buf, mp_size, &off)) {
+    if (msgpack_unpack_next(&result, mp_buf, mp_size, &off) == MSGPACK_UNPACK_SUCCESS) {
         map = result.data;
         if (map.type != MSGPACK_OBJECT_MAP) {
             flb_free(mp_buf);

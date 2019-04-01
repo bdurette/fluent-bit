@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,14 +21,7 @@
 #ifndef FLB_NETWORK_H
 #define FLB_NETWORK_H
 
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
-#include <netinet/tcp.h>
-#include <sys/socket.h>
-#endif
-
+#include <fluent-bit/flb_compat.h>
 #include <fluent-bit/flb_uri.h>
 
 /* Defines a host service and it properties */

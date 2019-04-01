@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,10 +29,22 @@
 #include <fluent-bit/flb_regex.h>
 #endif
 
+/* Metrics */
+#ifdef FLB_HAVE_METRICS
+#define FLB_TAIL_METRIC_F_OPENED  100  /* number of opened files  */
+#define FLB_TAIL_METRIC_F_CLOSED  101  /* number of closed files  */
+#define FLB_TAIL_METRIC_F_ROTATED 102  /* number of rotated files */
+#endif
+
 struct flb_tail_config {
     int fd_notify;             /* inotify fd               */
+#ifdef _WIN32
+    intptr_t ch_manager[2];    /* pipe: channel manager    */
+    intptr_t ch_pending[2];    /* pipe: pending events     */
+#else
     int ch_manager[2];         /* pipe: channel manager    */
     int ch_pending[2];         /* pipe: pending events     */
+#endif
 
     /* Buffer Config */
     size_t buf_chunk_size;     /* allocation chunks        */

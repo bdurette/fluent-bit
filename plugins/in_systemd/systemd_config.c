@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -102,7 +103,6 @@ struct flb_systemd_config *flb_systemd_config_create(struct flb_input_instance *
     else {
         ctx->dynamic_tag = FLB_FALSE;
     }
-    ctx->i_ins->flags |= FLB_INPUT_DYN_TAG;
 
     /* Database file */
     tmp = flb_input_get_property("db", i_ins);

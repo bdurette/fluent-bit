@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -218,7 +219,7 @@ static int secure_forward_ping(struct flb_upstream_conn *u_conn,
 static int secure_forward_pong(char *buf, int buf_size)
 {
     int ret;
-    char msg[32] = {};
+    char msg[32] = {0};
     size_t off = 0;
     msgpack_unpacked result;
     msgpack_object root;
@@ -612,7 +613,7 @@ static int data_compose(void *data, size_t bytes,
         msgpack_sbuffer_init(&mp_sbuf);
         msgpack_packer_init(&mp_pck, &mp_sbuf, msgpack_sbuffer_write);
 
-        while (msgpack_unpack_next(&result, data, bytes, &off)) {
+        while (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS) {
             /* Gather time */
             flb_time_pop_from_msgpack(&tm, &result, &mp_obj);
 
@@ -624,7 +625,7 @@ static int data_compose(void *data, size_t bytes,
         }
     }
     else {
-        while (msgpack_unpack_next(&result, data, bytes, &off)) {
+        while (msgpack_unpack_next(&result, data, bytes, &off) == MSGPACK_UNPACK_SUCCESS) {
             entries++;
         }
     }

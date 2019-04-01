@@ -2,6 +2,7 @@
 
 /*  Fluent Bit
  *  ==========
+ *  Copyright (C) 2019      The Fluent Bit Authors
  *  Copyright (C) 2015-2018 Treasure Data Inc.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,11 +38,26 @@ static int fw_process_array(struct flb_input_instance *in,
 {
     int i;
     msgpack_object entry;
+    msgpack_sbuffer mp_sbuf;
+    msgpack_packer mp_pck;
+
+    /*
+     * This process is not quite optimal from a performance perspective,
+     * we need to fix it later, likely using the offset of the original
+     * msgpack buffer.
+     *
+     * For now we iterate the array and append each entry into a chunk
+     */
+    msgpack_sbuffer_init(&mp_sbuf);
+    msgpack_packer_init(&mp_pck, &mp_sbuf, msgpack_sbuffer_write);
 
     for (i = 0; i < arr->via.array.size; i++) {
         entry = arr->via.array.ptr[i];
-        flb_input_dyntag_append_obj(in, tag, tag_len, entry);
+        msgpack_pack_object(&mp_pck, entry);
     }
+
+    flb_input_chunk_append_raw(in, tag, tag_len, mp_sbuf.data, mp_sbuf.size);
+    msgpack_sbuffer_destroy(&mp_sbuf);
 
     return i;
 }
@@ -185,7 +201,6 @@ int fw_prot_process(struct fw_conn *conn)
             }
             else if (entry.type == MSGPACK_OBJECT_POSITIVE_INTEGER ||
                      entry.type == MSGPACK_OBJECT_EXT) {
-
                 /* Forward format 2: [tag, time, map] */
                 map = root.via.array.ptr[2];
                 if (map.type != MSGPACK_OBJECT_MAP) {
@@ -198,8 +213,6 @@ int fw_prot_process(struct fw_conn *conn)
                 /* Compose the new array */
                 struct msgpack_sbuffer mp_sbuf;
                 struct msgpack_packer mp_pck;
-                msgpack_unpacked r_out;
-                size_t off = 0;
 
                 msgpack_sbuffer_init(&mp_sbuf);
                 msgpack_packer_init(&mp_pck, &mp_sbuf, msgpack_sbuffer_write);
@@ -208,25 +221,9 @@ int fw_prot_process(struct fw_conn *conn)
                 msgpack_pack_object(&mp_pck, entry);
                 msgpack_pack_object(&mp_pck, map);
 
-                /* sbuffer to msgpack object */
-                msgpack_unpacked_init(&r_out);
-                ret = msgpack_unpack_next(&r_out,
-                                          mp_sbuf.data,
-                                          mp_sbuf.size,
-                                          &off);
-                if (ret != MSGPACK_UNPACK_SUCCESS) {
-                    msgpack_unpacked_destroy(&result);
-                    msgpack_unpacker_free(unp);
-                    return -1;
-                }
-
                 /* Register data object */
-                entry = r_out.data;
-                flb_input_dyntag_append_obj(conn->in,
-                                            stag, stag_len,
-                                            entry);
-
-                msgpack_unpacked_destroy(&r_out);
+                flb_input_chunk_append_raw(conn->in, stag, stag_len,
+                                           mp_sbuf.data, mp_sbuf.size);
                 msgpack_sbuffer_destroy(&mp_sbuf);
                 c++;
             }
@@ -246,9 +243,9 @@ int fw_prot_process(struct fw_conn *conn)
                 }
 
                 if (data) {
-                    flb_input_dyntag_append_raw(conn->in,
-                                                stag, stag_len,
-                                                data, len);
+                    flb_input_chunk_append_raw(conn->in,
+                                               stag, stag_len,
+                                               data, len);
                 }
             }
             else {

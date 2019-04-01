@@ -15,6 +15,12 @@ flb-rt-out_forward
 flb-rt-in_disk
 flb-rt-in_proc"
 
+# On macOS, kubernetes log directory which points to /var/log does not exist.
+if [ "$(uname)" = "Darwin" ]
+then
+    SKIP_TESTS+="flb-rt-filter_kubernetes"
+fi
+
 for skip in $SKIP_TESTS
 do
     SKIP="$SKIP -DFLB_WITHOUT_${skip}=1"
@@ -55,3 +61,15 @@ echo
 echo "Run unit tests for $FLB_OPT on $nparallel VCPU"
 echo
 ctest -j $nparallel --build-run-dir $PWD --output-on-failure
+res=$?
+
+if [[ "$FLB_OPT" =~ COVERAGE  ]]
+then
+    mkdir -p coverage
+    find lib -name "*.gcda" -o -name "*.gcno" -print0 | xargs -0 -r rm
+    gcovr -e "build/sql.l" -e "build/sql.y" -p -r .. . | cut -c1-100
+    gcovr -e "build/sql.l" -e "build/sql.y" --html --html-details -p -r .. -o coverage/index.html .
+    echo
+    echo "See coverage/index.html for code-coverage details"
+fi
+exit $res
