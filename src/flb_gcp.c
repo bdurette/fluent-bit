@@ -423,7 +423,8 @@ static int flb_gcp_oath_jwt_encode(char *payload, char *secret,
 }
 
 /* Create a new oauth2 context and get a oauth2 token */
-static int flb_gcp_get_oauth2_token(struct flb_gcp_oauth_credentials *ctx)
+static int flb_gcp_get_oauth2_token(struct flb_gcp_oauth_credentials *ctx,
+                                    char *oauth_scope)
 {
     int ret;
     char *token;
@@ -440,7 +441,7 @@ static int flb_gcp_get_oauth2_token(struct flb_gcp_oauth_credentials *ctx)
     snprintf(payload, sizeof(payload) - 1,
              "{\"iss\": \"%s\", \"scope\": \"%s\", "
              "\"aud\": \"%s\", \"exp\": %lu, \"iat\": %lu}",
-             ctx->client_email, ctx->oauth_scope,
+             ctx->client_email, oauth_scope,
              FLB_GCP_AUTH_URL,
              expires, issued);
 
@@ -491,19 +492,20 @@ static int flb_gcp_get_oauth2_token(struct flb_gcp_oauth_credentials *ctx)
     return 0;
 }
 
-static char *flb_gcp_get_access_token(struct flb_gcp_oauth_credentials *ctx)
+static char *flb_gcp_get_access_token(struct flb_gcp_oauth_credentials *ctx,
+                                      char *oauth_scope)
 {
     flb_trace("[auth_gcp] getting google token");
     int ret = 0;
 
     if (!ctx->o) {
         flb_trace("[auth_gcp] acquiring new token");
-        ret = flb_gcp_get_oauth2_token(ctx);
+        ret = flb_gcp_get_oauth2_token(ctx, oauth_scope);
     }
     else if (flb_oauth2_token_expired(ctx->o) == FLB_TRUE) {
         flb_trace("[auth_gcp] replacing expired token");
         flb_oauth2_destroy(ctx->o);
-        ret = flb_gcp_get_oauth2_token(ctx);
+        ret = flb_gcp_get_oauth2_token(ctx, oauth_scope);
     }
 
     if (ret != 0) {

@@ -52,8 +52,8 @@ static int cb_bigquery_init(struct flb_output_instance *ins,
         return -1;
     }
 
-    /* Retrief oauth2 token */
-    token = flb_gcp_get_access_token(ctx->oauth_credentials);
+    /* Retrieve oauth2 token */
+    token = flb_gcp_get_access_token(ctx->oauth_credentials, FLB_BIGQUERY_SCOPE);
     if (!token) {
         flb_warn("[out_bigquery] token retrieval failed");
     }
@@ -193,7 +193,7 @@ static void cb_bigquery_flush(void *data, size_t bytes,
     }
 
     /* Get or renew Token */
-    token = flb_gcp_get_access_token(ctx->oauth_credentials);
+    token = flb_gcp_get_access_token(ctx->oauth_credentials, FLB_BIGQUERY_SCOPE);
     if (!token) {
         flb_error("[out_bigquery] cannot retrieve oauth2 token");
         flb_upstream_conn_release(u_conn);

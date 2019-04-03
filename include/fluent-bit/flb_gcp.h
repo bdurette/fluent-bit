@@ -43,9 +43,6 @@ struct flb_gcp_oauth_credentials {
     flb_sds_t auth_uri;
     flb_sds_t token_uri;
 
-    /* scope required by the owning output handler */
-    flb_sds_t oauth_scope;
-
     /* oauth2 context */
     struct flb_oauth2 *o;
 
@@ -56,7 +53,7 @@ struct flb_gcp_oauth_credentials {
 struct flb_gcp_oauth_credentials *flb_gcp_load_credentials(struct flb_output_instance *ins,
                                                            struct flb_config *config);
 int flb_gcp_oauth_credentials_destroy(struct flb_gcp_oauth_credentials *creds);
-char *flb_gcp_get_access_token(struct flb_gcp_oauth_credentials *ctx);
+char *flb_gcp_get_access_token(struct flb_gcp_oauth_credentials *ctx, char *oauth_scope);
 
 
 #endif
